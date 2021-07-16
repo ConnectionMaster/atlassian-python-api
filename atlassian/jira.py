@@ -735,7 +735,7 @@ class Jira(AtlassianRestAPI):
         :param list issue_list:
         :return:
         """
-        jira_issue_regex = re.compile(r"[A-Z]{1,10}-\d+")
+        jira_issue_regex = re.compile(r"\w+-\d+")
         missing_issues = list()
         matched_issue_keys = list()
         for key in issue_list:
@@ -2073,6 +2073,14 @@ class Jira(AtlassianRestAPI):
         return self.jql(jql, fields="*none")["total"]
 
     def get_all_project_issues(self, project, fields="*all", start=0, limit=None):
+        """
+        Get the Issues for a Project
+        :param project: Project Key name
+        :param fields: OPTIONAL list<str>: List of Issue Fields
+        :param start: OPTIONAL int: Starting index/offset from the list of target issues
+        :param limit: OPTIONAL int: Total number of project issues to be returned
+        :return: List of Dictionary for the Issue(s) returned.
+        """
         jql = "project = {project} ORDER BY key".format(project=project)
         return self.jql(jql, fields=fields, start=start, limit=limit)["issues"]
 
@@ -3844,7 +3852,7 @@ api-group-workflows/#api-rest-api-2-workflow-search-get)
         if 400 <= response.status_code < 600:
             try:
                 j = response.json()
-                error_msg = "\n".join(j["errorMessages"])
+                error_msg = "\n".join(j["errorMessages"] + [k + ": " + v for k, v in j["errors"].items()])
             except Exception:
                 response.raise_for_status()
 
