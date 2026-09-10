@@ -1448,6 +1448,39 @@ class TestConfluenceServer:
             },
         )
 
+    @patch.object(ConfluenceServer, "get")
+    def test_get_likes_uses_ui_endpoint(self, mock_get, confluence_server):
+        mock_get.return_value = {"content_id": "123", "content_type": "page", "likes": []}
+
+        assert confluence_server.get_likes("123")["content_type"] == "page"
+        mock_get.assert_called_once_with("rest/likes/1.0/content/123/likes")
+
+    @patch.object(ConfluenceServer, "post")
+    def test_add_like_uses_configured_username(self, mock_post, confluence_server):
+        mock_post.return_value = {"likes": [{"user": {"name": "test"}}]}
+
+        assert confluence_server.add_like("123") == {"likes": [{"user": {"name": "test"}}]}
+        mock_post.assert_called_once_with("rest/likes/1.0/content/123/likes", data={"username": "test"})
+
+    @patch.object(ConfluenceServer, "get")
+    @patch.object(ConfluenceServer, "post")
+    def test_add_like_is_idempotent_when_server_reports_existing_like(self, mock_post, mock_get, confluence_server):
+        response = Response()
+        response.status_code = 400
+        response._content = b"The content cannot be liked"
+        mock_post.side_effect = HTTPError(response=response)
+        mock_get.return_value = {"likes": [{"user": {"name": "test"}}]}
+
+        assert confluence_server.add_like("123") == {"likes": [{"user": {"name": "test"}}]}
+        mock_get.assert_called_once_with("rest/likes/1.0/content/123/likes")
+
+    @patch.object(ConfluenceServer, "delete")
+    def test_remove_like_uses_ui_endpoint(self, mock_delete, confluence_server):
+        mock_delete.return_value = {"likes": []}
+
+        assert confluence_server.remove_like("123") == {"likes": []}
+        mock_delete.assert_called_once_with("rest/likes/1.0/content/123/likes")
+
     @patch.object(ConfluenceServer, "put")
     def test_update_comment(self, mock_put, confluence_server):
         """Test update_comment method."""

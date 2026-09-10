@@ -1324,6 +1324,47 @@ class Server(ConfluenceServerBase):
         )
         return self.put(resolve_path, data=data)
 
+    # Like management
+    # These endpoints are used by the Confluence Server/Data Center web UI,
+    # but are not part of Atlassian's documented REST API.
+    _likes_resource = "rest/likes/1.0/content"
+
+    def get_likes(self, content_id):
+        """Return likes for a page, blog post, or comment.
+
+        The raw UI endpoint response includes both ``content_type`` and
+        ``content_id``.  This is an undocumented Server/Data Center endpoint.
+        """
+        return self.get(f"{self._likes_resource}/{content_id}/likes")
+
+    def add_like(self, content_id, username=None):
+        """Like content as ``username`` or the configured authenticated user.
+
+        The operation is idempotent: when Confluence reports that the user has
+        already liked the content, the current like list is returned instead of
+        surfacing its otherwise ambiguous HTTP 400 response.
+        """
+        username = username or self.username
+        if not username:
+            raise ApiValueError("username is required when the client has no configured username")
+
+        try:
+            return self.post(f"{self._likes_resource}/{content_id}/likes", data={"username": username})
+        except HTTPError as error:
+            response = error.response
+            message = response.text.lower() if response is not None else ""
+            if response is not None and response.status_code == 400 and "cannot be liked" in message:
+                return self.get_likes(content_id)
+            raise
+
+    def remove_like(self, content_id):
+        """Remove the authenticated user's like from content.
+
+        This is an undocumented Server/Data Center UI endpoint.  Confluence
+        determines the like to remove from the authenticated user.
+        """
+        return self.delete(f"{self._likes_resource}/{content_id}/likes")
+
     def attach_content(
         self,
         content,
