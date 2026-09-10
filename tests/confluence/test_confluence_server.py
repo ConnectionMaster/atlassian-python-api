@@ -1388,6 +1388,66 @@ class TestConfluenceServer:
         mock_post.assert_called_once_with("content/123/child/comment", data=comment_data, **{})
         assert result == {"id": "comment2", "text": "New Comment"}
 
+    @patch.object(ConfluenceServer, "get")
+    def test_get_inline_comments_uses_plugin_endpoint(self, mock_get, confluence_server):
+        mock_get.return_value = [{"id": "comment-1"}]
+
+        assert confluence_server.get_inline_comments("123") == [{"id": "comment-1"}]
+        mock_get.assert_called_once_with("rest/inlinecomments/1.0/comments", params={"containerId": "123"})
+
+    @patch.object(ConfluenceServer, "post")
+    def test_add_inline_comment_creates_complete_plugin_payload(self, mock_post, confluence_server):
+        mock_post.return_value = {"id": "comment-1"}
+
+        result = confluence_server.add_inline_comment(
+            "123", "selected text", "<p>Note</p>", last_fetch_time=123456789
+        )
+
+        assert result == {"id": "comment-1"}
+        mock_post.assert_called_once_with(
+            "rest/inlinecomments/1.0/comments",
+            data={
+                "containerId": "123",
+                "body": "<p>Note</p>",
+                "originalSelection": "selected text",
+                "matchIndex": 0,
+                "numMatches": 1,
+                "lastFetchTime": 123456789,
+                "serializedHighlights": "",
+            },
+        )
+
+    @patch.object(ConfluenceServer, "post")
+    def test_reply_to_inline_comment_creates_child_comment(self, mock_post, confluence_server):
+        confluence_server.reply_to_inline_comment("123", "comment-1", "<p>Reply</p>")
+
+        assert mock_post.call_args.kwargs["data"] == {
+            "type": "comment",
+            "container": {"id": "123", "type": "page", "status": "current"},
+            "ancestors": [{"id": "comment-1"}],
+            "body": {"storage": {"value": "<p>Reply</p>", "representation": "storage"}},
+        }
+
+    @patch.object(ConfluenceServer, "put")
+    @patch.object(ConfluenceServer, "get")
+    def test_resolve_inline_comment_uses_complete_annotation_payload(self, mock_get, mock_put, confluence_server):
+        mock_get.return_value = [{"id": "comment-1", "body": "<p>Note</p>", "containerId": "123"}]
+        mock_put.return_value = {"id": "comment-1"}
+
+        assert confluence_server.resolve_inline_comment("123", "comment-1") == {"id": "comment-1"}
+        mock_put.assert_called_once_with(
+            "rest/inlinecomments/1.0/comments/comment-1/resolve/true/dangling/false",
+            data={
+                "id": "comment-1",
+                "body": "<p>Note</p>",
+                "containerId": "123",
+                "lastFetchTime": mock_put.call_args.kwargs["data"]["lastFetchTime"],
+                "serializedHighlights": "",
+                "deleted": False,
+                "active": True,
+            },
+        )
+
     @patch.object(ConfluenceServer, "put")
     def test_update_comment(self, mock_put, confluence_server):
         """Test update_comment method."""

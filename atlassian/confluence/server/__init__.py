@@ -1217,6 +1217,113 @@ class Server(ConfluenceServerBase):
 
         return response
 
+    # Inline comment management
+    # These endpoints are used by the Confluence Server/Data Center web UI,
+    # but are not part of Atlassian's documented REST API.
+    _inline_comments_resource = "rest/inlinecomments/1.0/comments"
+
+    def get_inline_comments(self, page_id):
+        """Return the inline annotations anchored in a page's body.
+
+        This uses Confluence Server/Data Center's undocumented inline-comment
+        plugin endpoint.  Its response shape is intentionally returned
+        unchanged because it varies between Confluence releases.
+
+        :param page_id: ID of the page containing the annotations.
+        """
+        return self.get(self._inline_comments_resource, params={"containerId": page_id})
+
+    def add_inline_comment(
+        self,
+        page_id,
+        selection,
+        body,
+        match_index=0,
+        num_matches=1,
+        serialized_highlights="",
+        last_fetch_time=None,
+    ):
+        """Create an inline annotation anchored to selected page text.
+
+        ``selection`` must exactly match text in the current page body.
+        ``match_index`` selects which matching occurrence should be annotated.
+        Confluence creates the marker in storage automatically; callers must
+        not update the page body or version themselves.
+
+        This is an undocumented Server/Data Center UI endpoint.
+        """
+        if not selection or not isinstance(selection, str):
+            raise ApiValueError("selection must be a non-empty string")
+        if not body or not isinstance(body, str):
+            raise ApiValueError("body must be a non-empty storage-format string")
+        if not isinstance(match_index, int) or match_index < 0:
+            raise ApiValueError("match_index must be a non-negative integer")
+        if not isinstance(num_matches, int) or num_matches < 1:
+            raise ApiValueError("num_matches must be a positive integer")
+
+        data = {
+            "containerId": page_id,
+            "body": body,
+            "originalSelection": selection,
+            "matchIndex": match_index,
+            "numMatches": num_matches,
+            "lastFetchTime": int(time.time() * 1000) if last_fetch_time is None else last_fetch_time,
+            "serializedHighlights": serialized_highlights,
+        }
+        return self.post(self._inline_comments_resource, data=data)
+
+    def reply_to_inline_comment(self, page_id, comment_id, body):
+        """Reply to an inline annotation using the regular content API.
+
+        This is supported by Confluence's comment hierarchy even though the
+        annotation itself originates from the inline-comments plugin endpoint.
+        """
+        if not body or not isinstance(body, str):
+            raise ApiValueError("body must be a non-empty storage-format string")
+
+        data = {
+            "type": "comment",
+            "container": {"id": page_id, "type": "page", "status": "current"},
+            "ancestors": [{"id": comment_id}],
+            "body": self._create_body(body, "storage"),
+        }
+        return self.post("rest/api/content", data=data)
+
+    def resolve_inline_comment(self, page_id, comment_id, resolved=True, dangling=False):
+        """Resolve or reopen an inline annotation.
+
+        The plugin requires the complete annotation object in the PUT payload,
+        so the method first retrieves annotations for ``page_id``.  ``dangling``
+        should be true only when the annotation no longer has a valid anchor.
+
+        This is an undocumented Server/Data Center UI endpoint.
+        """
+        comments = self.get_inline_comments(page_id)
+        if isinstance(comments, dict):
+            comments = comments.get("results", comments.get("comments", []))
+        if not isinstance(comments, list):
+            raise ApiError("Confluence returned an unexpected inline comments response")
+
+        comment = next((item for item in comments if str(item.get("id")) == str(comment_id)), None)
+        if comment is None:
+            raise ApiNotFoundError(f"Inline comment '{comment_id}' was not found on page '{page_id}'")
+
+        data = dict(comment)
+        data.update(
+            {
+                "containerId": data.get("containerId", page_id),
+                "lastFetchTime": data.get("lastFetchTime", int(time.time() * 1000)),
+                "serializedHighlights": data.get("serializedHighlights", ""),
+                "deleted": data.get("deleted", False),
+                "active": data.get("active", True),
+            }
+        )
+        resolve_path = (
+            f"{self._inline_comments_resource}/{comment_id}/resolve/"
+            f"{str(bool(resolved)).lower()}/dangling/{str(bool(dangling)).lower()}"
+        )
+        return self.put(resolve_path, data=data)
+
     def attach_content(
         self,
         content,
