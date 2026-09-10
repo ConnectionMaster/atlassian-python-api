@@ -322,7 +322,7 @@ class Server(ConfluenceServerBase):
         url = f"rest/plugins/1.0/{plugin_key}-key"
         data = {"status": "enabled"}
         return self.put(url, data=data, headers=app_headers)
-    
+
     def page_exists(self, space_key, title, **kwargs):
         """Check if page exists."""
         try:

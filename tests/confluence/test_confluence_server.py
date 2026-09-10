@@ -1399,9 +1399,7 @@ class TestConfluenceServer:
     def test_add_inline_comment_creates_complete_plugin_payload(self, mock_post, confluence_server):
         mock_post.return_value = {"id": "comment-1"}
 
-        result = confluence_server.add_inline_comment(
-            "123", "selected text", "<p>Note</p>", last_fetch_time=123456789
-        )
+        result = confluence_server.add_inline_comment("123", "selected text", "<p>Note</p>", last_fetch_time=123456789)
 
         assert result == {"id": "comment-1"}
         mock_post.assert_called_once_with(
