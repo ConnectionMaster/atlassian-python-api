@@ -111,6 +111,20 @@ class TestConfluenceServer:
         assert pdf_url == "https://test.confluence.com/spaces/flyingpdf/pdfpageexport.action?pageId=123"
         assert word_url == "https://test.confluence.com/exportword?pageId=123"
 
+    def test_server_ui_exports_strip_rest_api_suffix(self):
+        confluence = ConfluenceServer(url="https://test.confluence.com/confluence/rest/api/latest", token="test-token")
+        response = Response()
+        response.status_code = 200
+        response.reason = "OK"
+        response._content = b"%PDF-1.4"
+
+        with patch.object(confluence._session, "request", return_value=response) as mock_request:
+            assert confluence.get_page_as_pdf("123") == b"%PDF-1.4"
+
+        assert mock_request.call_args.kwargs["url"] == (
+            "https://test.confluence.com/confluence/spaces/flyingpdf/pdfpageexport.action?pageId=123"
+        )
+
     def test_bad_request_includes_confluence_validation_details(self, confluence_server):
         response = Response()
         response.status_code = 400
@@ -1647,8 +1661,9 @@ class TestConfluenceServer:
             confluence_server.get_page_as_pdf("123")
 
         mock_get.assert_called_once_with(
-            "spaces/flyingpdf/pdfpageexport.action?pageId=123",
+            "https://test.confluence.com/spaces/flyingpdf/pdfpageexport.action?pageId=123",
             headers=confluence_server.form_token_headers,
+            absolute=True,
             advanced_mode=True,
         )
 
@@ -1662,7 +1677,10 @@ class TestConfluenceServer:
 
         assert result == export
         mock_get.assert_called_once_with(
-            "exportword?pageId=123", headers=confluence_server.form_token_headers, not_json_response=True
+            "https://test.confluence.com/exportword?pageId=123",
+            headers=confluence_server.form_token_headers,
+            not_json_response=True,
+            absolute=True,
         )
 
     @patch.object(ConfluenceServer, "post")

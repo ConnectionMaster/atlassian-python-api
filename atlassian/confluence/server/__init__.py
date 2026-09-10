@@ -103,6 +103,15 @@ class Server(ConfluenceServerBase):
         api_parts.append(normalized_path)
         return "/".join(str(part).strip("/") for part in api_parts if part is not None and str(part).strip("/"))
 
+    def _ui_url(self, path):
+        """Return an absolute URL for a Confluence UI action.
+
+        The PDF and Word exporters are UI actions, not REST resources.  Some
+        existing integrations initialise the client with a REST API URL, so
+        remove that suffix before resolving UI paths.
+        """
+        return self.url_joiner(self.url.split("/rest/api/", 1)[0], path)
+
     def request(
         self,
         method="GET",
@@ -3518,13 +3527,14 @@ class Server(ConfluenceServerBase):
         :return: PDF File
         """
         headers = self.form_token_headers
-        url = f"spaces/flyingpdf/pdfpageexport.action?pageId={page_id}"
-        response = self.get(url, headers=headers, advanced_mode=True)
+        url = self._ui_url(f"spaces/flyingpdf/pdfpageexport.action?pageId={page_id}")
+        response = self.get(url, headers=headers, absolute=True, advanced_mode=True)
         content = response.content
         if not content.startswith(b"%PDF-"):
             raise ApiError(
-                "Confluence returned non-PDF content while exporting the page. "
-                "Check the page permissions and authentication configuration."
+                "Confluence returned non-PDF content while exporting the page from "
+                f"{getattr(response, 'url', url)}. Check the page permissions, "
+                "authentication configuration, and Confluence context path."
             )
         return content
 
@@ -3563,8 +3573,8 @@ class Server(ConfluenceServerBase):
         :return: Legacy Word-export bytes
         """
         headers = self.form_token_headers
-        url = f"exportword?pageId={page_id}"
-        return self.get(url, headers=headers, not_json_response=True)
+        url = self._ui_url(f"exportword?pageId={page_id}")
+        return self.get(url, headers=headers, not_json_response=True, absolute=True)
 
     def get_space_export(self, space_key: str, export_type: str) -> str:
         """
@@ -3821,102 +3831,6 @@ class Server(ConfluenceServerBase):
             raise
 
         return response
-
-    def get_plugins_info(self):
-        """
-        Provide plugins info
-        :return a json of installed plugins
-        """
-        url = "rest/plugins/1.0/"
-        return self.get(url, headers=self.no_check_headers, trailing=True)
-
-    def get_plugin_info(self, plugin_key):
-        """
-        Provide plugin info
-        :return a json of installed plugins
-        """
-        url = f"rest/plugins/1.0/{plugin_key}-key"
-        return self.get(url, headers=self.no_check_headers, trailing=True)
-
-    def get_plugin_license_info(self, plugin_key):
-        """
-        Provide plugin license info
-        :return a json specific License query
-        """
-        url = f"rest/plugins/1.0/{plugin_key}-key/license"
-        return self.get(url, headers=self.no_check_headers, trailing=True)
-
-    def upload_plugin(self, plugin_path):
-        """
-        Provide plugin path for upload into Jira e.g. useful for auto deploy
-        :param plugin_path:
-        :return:
-        """
-        files = {"plugin": open(plugin_path, "rb")}
-        upm_token = self.request(
-            method="GET",
-            path="rest/plugins/1.0/",
-            headers=self.no_check_headers,
-            trailing=True,
-        ).headers["upm-token"]
-        url = f"rest/plugins/1.0/?token={upm_token}"
-        return self.post(url, files=files, headers=self.no_check_headers)
-
-    def disable_plugin(self, plugin_key):
-        """
-        Disable a plugin
-        :param plugin_key:
-        :return:
-        """
-        app_headers = {
-            "X-Atlassian-Token": "no-check",
-            "Content-Type": "application/vnd.atl.plugins+json",
-        }
-        url = f"rest/plugins/1.0/{plugin_key}-key"
-        data = {"status": "disabled"}
-        return self.put(url, data=data, headers=app_headers)
-
-    def enable_plugin(self, plugin_key):
-        """
-        Enable a plugin
-        :param plugin_key:
-        :return:
-        """
-        app_headers = {
-            "X-Atlassian-Token": "no-check",
-            "Content-Type": "application/vnd.atl.plugins+json",
-        }
-        url = f"rest/plugins/1.0/{plugin_key}-key"
-        data = {"status": "enabled"}
-        return self.put(url, data=data, headers=app_headers)
-
-    def delete_plugin(self, plugin_key):
-        """
-        Delete plugin
-        :param plugin_key:
-        :return:
-        """
-        url = f"rest/plugins/1.0/{plugin_key}-key"
-        return self.delete(url)
-
-    def check_plugin_manager_status(self):
-        url = "rest/plugins/latest/safe-mode"
-        return self.request(method="GET", path=url, headers=self.safe_mode_headers)
-
-    def update_plugin_license(self, plugin_key, raw_license):
-        """
-        Update license for plugin
-        :param plugin_key:
-        :param raw_license:
-        :return:
-        """
-        app_headers = {
-            "X-Atlassian-Token": "no-check",
-            "Content-Type": "application/vnd.atl.plugins+json",
-        }
-        url = f"/plugins/1.0/{plugin_key}/license"
-        data = {"rawLicense": raw_license}
-        return self.put(url, data=data, headers=app_headers)
 
     def check_long_tasks_result(self, start=None, limit=None, expand=None):
         """
